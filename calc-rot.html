@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<title>Rita frihand och räkna yta</title>
+<style>
+  body {
+    font-family: sans-serif;
+    text-align: center;
+    background: #f8f9fa;
+  }
+  canvas {
+    border: 1px solid #aaa;
+    margin-top: 10px;
+    cursor: crosshair;
+    touch-action: none;
+    max-width: 95vw;
+  }
+  #resultat {
+    margin-top: 10px;
+    font-size: 1.2em;
+  }
+  button {
+    margin: 5px;
+    padding: 8px 16px;
+    border-radius: 8px;
+  }
+</style>
+</head>
+<body>
+
+<h2>Rita två områden på frihand och beräkna andel</h2>
+<input type="file" id="bildInput" accept="image/*"><br>
+<button id="rensaBtn" disabled>Rensa områden</button>
+<canvas id="myCanvas"></canvas>
+<p id="resultat"></p>
+
+<script>
+const canvas = document.getElementById('myCanvas');
+const ctx = canvas.getContext('2d');
+const bildInput = document.getElementById('bildInput');
+const rensaBtn = document.getElementById('rensaBtn');
+
+let img = null;
+let imgLoaded = false;
+let paths = [];
+let currentPath = [];
+let isDrawing = false;
+
+// 🖼️ När användaren väljer en bild
+bildInput.addEventListener('change', e => {
+  const fil = e.target.files[0];
+  if (!fil) return;
+
+  const url = URL.createObjectURL(fil);
+  img = new Image();
+  img.onload = () => {
+    const maxWidth = 800;
+    const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+    canvas.width = img.width * scale;
+    canvas.height = img.height * scale;
+
+    imgLoaded = true;
+    paths = [];
+    currentPath = [];
+    rensaBtn.disabled = false;
+    document.getElementById('resultat').innerText = '';
+
+    // 🖼️ Rita bilden när den laddats
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  };
+  img.src = url;
+});
+
+// 🔄 Rita om canvas (bild + områden)
+function drawCanvas() {
+  if (!imgLoaded) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  // Rita alla sparade områden
+  paths.forEach((path, i) => {
+    ctx.beginPath();
+    ctx.moveTo(path[0].x, path[0].y);
+    for (let p of path) ctx.lineTo(p.x, p.y);
+    ctx.closePath();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = i === 0 ? 'blue' : 'red';
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = i === 0 ? 'blue' : 'red';
+    ctx.fill();
+    ctx.globalAlpha = 1.0;
+    ctx.stroke();
+  });
+}
+
+// ✏️ Rita frihand (mus)
+canvas.addEventListener('mousedown', e => {
+  if (!imgLoaded || paths.length >= 2) return;
+  isDrawing = true;
+  currentPath = [{x: e.offsetX, y: e.offsetY}];
+});
+canvas.addEventListener('mousemove', e => {
+  if (!isDrawing) return;
+  currentPath.push({x: e.offsetX, y: e.offsetY});
+  drawCanvas();
+  // Förhandsvisa aktuell form
+  ctx.beginPath();
+  ctx.moveTo(currentPath[0].x, currentPath[0].y);
+  for (let p of currentPath) ctx.lineTo(p.x, p.y);
+  ctx.strokeStyle = "gray";
+  ctx.stroke();
+});
+canvas.addEventListener('mouseup', () => {
+  if (!isDrawing) return;
+  isDrawing = false;
+  if (currentPath.length > 2) {
+    paths.push(currentPath);
+    if (paths.length === 2) beräknaAndel();
+  }
+  currentPath = [];
+  drawCanvas();
+});
+
+// 📱 Touch (mobil)
+canvas.addEventListener('touchstart', e => {
+  if (!imgLoaded || paths.length >= 2) return;
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const t = e.touches[0];
+  currentPath = [{x: t.clientX - rect.left, y: t.clientY - rect.top}];
+  isDrawing = true;
+});
+canvas.addEventListener('touchmove', e => {
+  if (!isDrawing) return;
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const t = e.touches[0];
+  currentPath.push({x: t.clientX - rect.left, y: t.clientY - rect.top});
+  drawCanvas();
+  ctx.beginPath();
+  ctx.moveTo(currentPath[0].x, currentPath[0].y);
+  for (let p of currentPath) ctx.lineTo(p.x, p.y);
+  ctx.strokeStyle = "gray";
+  ctx.stroke();
+});
+canvas.addEventListener('touchend', e => {
+  if (!isDrawing) return;
+  e.preventDefault();
+  isDrawing = false;
+  if (currentPath.length > 2) {
+    paths.push(currentPath);
+    if (paths.length === 2) beräknaAndel();
+  }
+  currentPath = [];
+  drawCanvas();
+});
+
+// 🧮 Beräkna procentuell area
+function beräknaAndel() {
+  const areor = paths.map(path => {
+    const tempCanvas = document.createElement('canvas');
+    const tctx = tempCanvas.getContext('2d');
+    tempCanvas.width = canvas.width;
+    tempCanvas.height = canvas.height;
+
+    tctx.beginPath();
+    tctx.moveTo(path[0].x, path[0].y);
+    for (let p of path) tctx.lineTo(p.x, p.y);
+    tctx.closePath();
+    tctx.fill();
+
+    const mask = tctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height).data;
+    let count = 0;
+    for (let i = 3; i < mask.length; i += 4) {
+      if (mask[i] > 0) count++;
+    }
+    return count;
+  });
+
+  const [stor, liten] = areor.sort((a, b) => b - a);
+  const procent = (liten / stor) * 100;
+  document.getElementById('resultat').innerText =
+    `Det mindre området är ${procent.toFixed(2)}% av det större.`;
+}
+
+// 🧹 Rensa
+rensaBtn.addEventListener('click', () => {
+  paths = [];
+  currentPath = [];
+  drawCanvas();
+  document.getElementById('resultat').innerText = '';
+});
+</script>
+</body>
+</html>
