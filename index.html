@@ -157,15 +157,35 @@
 
     // 🔹 Rita frihand (mus)
     canvas.addEventListener('mousedown', e => {
-      if (!imgLoaded) return;
-      isDrawing = true;
-      currentPath = [{x:e.offsetX,y:e.offsetY}];
+      //if (!imgLoaded) return;
+      //isDrawing = true;
+      //currentPath = [{x:e.offsetX,y:e.offsetY}];
+	  
+	   if (!imgLoaded) return;
+	  isDrawing = true;
+	  const rect = canvas.getBoundingClientRect();
+	  const scaleX = canvas.width / rect.width;
+	  const scaleY = canvas.height / rect.height;
+	  const x = (e.clientX - rect.left) * scaleX;
+	  const y = (e.clientY - rect.top) * scaleY;
+	  currentPath = [{x, y}];
     });
     canvas.addEventListener('mousemove', e => {
-      if (!isDrawing) return;
-      currentPath.push({x:e.offsetX,y:e.offsetY});
-      drawCanvas();
-      drawTempPath();
+      //if (!isDrawing) return;
+      //currentPath.push({x:e.offsetX,y:e.offsetY});
+      //drawCanvas();
+      //drawTempPath();
+	  
+	  if (!isDrawing) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = (e.clientX - rect.left) * scaleX;
+  const y = (e.clientY - rect.top) * scaleY;
+  currentPath.push({x, y});
+  drawCanvas();
+  drawTempPath();
+	  
     });
     canvas.addEventListener('mouseup', () => finishPath());
 
