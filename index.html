@@ -1,417 +1,331 @@
 <!DOCTYPE html>
 <html lang="sv">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1.0" />
-<title>Röta-kalkylator (mobilvänlig)</title>
-<style>
-  :root{
-    --accent:#0b6efd;
-    --danger:#d6333c;
-    --bg:#f8f9fa;
-    --card:#ffffff;
-    --muted:#666;
-  }
-  html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;color:#111;background:var(--bg);}
-  .wrap{max-width:920px;margin:0 auto;padding:12px;}
-  h2{margin:6px 0 8px;font-size:1.2rem;text-align:left;}
-  .controls{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:center;}
-  .controls > *{flex:0 1 auto;}
-  button,input[type="file"]{
-    font-size:1rem;padding:10px 12px;border-radius:10px;border:1px solid #ddd;background:var(--card);
-  }
-  button{min-width:110px;}
-  button.primary{background:var(--accent);color:#fff;border-color:transparent;}
-  button.ghost{background:#fff;color:var(--accent);border:1px solid var(--accent);}
-  button.warn{background:var(--danger);color:#fff;border-color:transparent;}
-  #progressWrap{width:100%;background:#eee;border-radius:8px;overflow:hidden;height:12px;margin-top:6px;display:none;}
-  #progress{width:0%;height:100%;background:linear-gradient(90deg,var(--accent),#66a6ff);transition:width 0.15s;}
-  #myCanvas{display:block;width:100%;height:auto;border-radius:8px;border:1px solid #cfcfcf;touch-action:none;background:#fff;}
-  #resultat{margin-top:8px;font-size:1.05rem;color:#000;}
-  .hint{font-size:0.88rem;color:var(--muted);margin-top:6px;}
-  .small{font-size:0.88rem;color:var(--muted);}
-  @media(min-width:600px){
-    h2{font-size:1.4rem;}
-  }
-</style>
+  <meta charset="UTF-8">
+  <title>Röträknare för stockar</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      background: #f5f5f5;
+      padding: 20px;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      margin-top: 10px;
+      cursor: crosshair;
+      background: white;
+      max-width: 100%;
+      height: auto;
+    }
+    .controls {
+      margin: 10px 0;
+    }
+    #resultat, #statusText {
+      font-weight: bold;
+      margin-top: 10px;
+    }
+    #progressContainer {
+      display: none;
+      margin-top: 10px;
+    }
+    #progressBar {
+      width: 200px;
+      height: 8px;
+      background: #ddd;
+      border-radius: 5px;
+      margin: auto;
+      overflow: hidden;
+    }
+    #progressFill {
+      width: 0%;
+      height: 100%;
+      background: #2196F3;
+      animation: loading 2s infinite;
+    }
+    @keyframes loading {
+      0% {width: 0%;}
+      50% {width: 100%;}
+      100% {width: 0%;}
+    }
+  </style>
 </head>
 <body>
-<div class="wrap">
-  <h2>Röta-kalkylator</h2>
+
+  <h2>Röträknare för stockändar</h2>
 
   <div class="controls">
-    <input type="file" id="bildInput" accept="image/*">
-    <button id="ritBtn" class="ghost" disabled>Ritläge: AV</button>
-    <button id="resetBtn" disabled>Återställ</button>
-    <button id="calcBtn" class="primary" disabled>Beräkna</button>
+    <label><input type="checkbox" id="aiCheckbox"> Använd AI för att hitta ytterkant</label>
+    <button id="runAiBtn" disabled>Kör AI</button><br><br>
+    <input type="file" id="bildInput" accept="image/*"><br><br>
+    <button id="rensaBtn" disabled>Rensa</button>
   </div>
 
-  <div id="progressWrap"><div id="progress"></div></div>
-  <div class="hint">Välj en bild (ände av stock). AI försöker hitta ytterkonturen automatiskt. Aktivera ritläge och rita röta med fingret.</div>
+  <div id="progressContainer">
+    <div id="progressBar"><div id="progressFill"></div></div>
+    <p>AI analyserar bilden...</p>
+  </div>
 
-  <canvas id="myCanvas"></canvas>
-
+  <p id="statusText"></p>
+  <canvas id="myCanvas" width="800" height="600"></canvas>
   <p id="resultat"></p>
-  <p class="small">Tips: välj en bild rakt ovanifrån (90°) och i bra ljus för bäst detektion.</p>
-</div>
 
-<!-- OpenCV.js (async). När scriptet laddats kommer globalt "cv" finnas. -->
-<script async src="https://docs.opencv.org/4.x/opencv.js" onload="console.log('OpenCV.js loaded');"></script>
+  <!-- OpenCV.js -->
+  <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();"></script>
 
-<script>
-/* === Röta-kalkylator — mobilvänlig version (byggd på tidigare fungerande release) ===
-   - Laddar OpenCV.js (kräver internet när du första gången öppnar filen)
-   - Kör HoughCircles för att hitta stockens yttercirkel
-   - Touch-vänlig frihandsritning (färg: röd)
-   - Progressbar under beräkning
-   - Ingen bilduppladdning till server — allt lokalt
-*/
+  <script>
+  let canvas, ctx, bildInput, aiCheckbox, rensaBtn, runAiBtn;
+  let img = null;
+  let imgLoaded = false;
+  let paths = [];
+  let currentPath = [];
+  let isDrawing = false;
+  let stockContour = null;
+  let aiReady = false;
 
-const bildInput = document.getElementById('bildInput');
-const ritBtn = document.getElementById('ritBtn');
-const resetBtn = document.getElementById('resetBtn');
-const calcBtn = document.getElementById('calcBtn');
-const progressWrap = document.getElementById('progressWrap');
-const progressBar = document.getElementById('progress');
-const canvas = document.getElementById('myCanvas');
-const ctx = canvas.getContext('2d');
-const resultatEl = document.getElementById('resultat');
-
-let img = new Image();
-let imgLoaded = false;
-let scale = 1;
-
-let stockContour = null; // {x,y,r} in canvas coordinate space
-let paths = [];          // array of arrays of points [{x,y},...]
-let currentPath = [];
-let drawing = false;
-let ritMode = false;
-let cvReady = false;
-
-// Wait until OpenCV is loaded (cv will exist)
-function waitForCvReady(cb, timeout = 5000) {
-  const start = Date.now();
-  (function check(){
-    if (window.cv && cv.Mat) {
-      cvReady = true;
-      cb();
-    } else if (Date.now() - start < timeout) {
-      setTimeout(check, 100);
-    } else {
-      // Not ready yet — still allow user to try, but AI won't run until loaded
-      cb();
-    }
-  })();
-}
-
-// === Helpers ===
-function clearResult(){ resultatEl.textContent = ''; }
-function setButtonsState(enabled) {
-  ritBtn.disabled = !enabled;
-  resetBtn.disabled = !enabled;
-  calcBtn.disabled = !enabled;
-}
-
-// === Image load & canvas sizing ===
-bildInput.addEventListener('change', e=>{
-  const file = e.target.files && e.target.files[0];
-  if(!file) return;
-  const url = URL.createObjectURL(file);
-  img = new Image();
-  img.onload = () => {
-    // fit width to viewport (95%); maintain aspect ratio
-    const maxWidth = Math.min(window.innerWidth * 0.95, 900);
-    scale = img.width > maxWidth ? (maxWidth / img.width) : 1;
-    canvas.width = Math.round(img.width * scale);
-    canvas.height = Math.round(img.height * scale);
-    // Reset
-    imgLoaded = true;
-    stockContour = null;
-    paths = [];
-    currentPath = [];
-    drawing = false;
-    ritMode = false;
-    ritBtn.textContent = 'Ritläge: AV';
-    clearResult();
-    setButtonsState(true);
-    drawCanvas();
-    // Run AI contour detection after cv is ready
-    waitForCvReady(() => {
-      if (cvReady) detectStockContour();
-      else {
-        console.warn('OpenCV.js not ready yet — AI-detektion väntar.');
-        // Try again in a bit
-        const tryAgain = setInterval(()=>{
-          if (window.cv && cv.Mat) { clearInterval(tryAgain); cvReady=true; detectStockContour(); }
-        },250);
-      }
-    }, 7000);
-  };
-  img.onerror = () => alert('Kunde inte läsa bilden. Testa en annan fil.');
-  img.src = url;
-});
-
-// === Draw canvas (image + stock contour + paths) ===
-function drawCanvas(){
-  if(!imgLoaded) {
-    // clear small canvas area in case
-    ctx.setTransform(1,0,0,1,0,0);
-    ctx.clearRect(0,0,canvas.width||300,canvas.height||150);
-    return;
-  }
-  // Clear and draw image
-  ctx.setTransform(1,0,0,1,0,0);
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-  // Stock contour (blue)
-  if (stockContour) {
-    ctx.beginPath();
-    ctx.lineWidth = Math.max(3, 3);
-    ctx.strokeStyle = '#0b6efd';
-    ctx.arc(stockContour.x, stockContour.y, stockContour.r, 0, Math.PI*2);
-    ctx.stroke();
+  function onOpenCvReady() {
+    aiReady = true;
+    console.log("OpenCV.js laddad.");
   }
 
-  // Draw saved paths (filled red)
-  for (let pIndex = 0; pIndex < paths.length; pIndex++) {
-    const path = paths[pIndex];
-    if (!path || path.length < 2) continue;
-    ctx.beginPath();
-    ctx.moveTo(path[0].x, path[0].y);
-    for (let k=1;k<path.length;k++) ctx.lineTo(path[k].x, path[k].y);
-    ctx.closePath();
-    ctx.globalAlpha = 0.35;
-    ctx.fillStyle = '#d9534f';
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#b02a37';
-    ctx.stroke();
-  }
+  document.addEventListener("DOMContentLoaded", () => {
+    canvas = document.getElementById('myCanvas');
+    ctx = canvas.getContext('2d');
+    bildInput = document.getElementById('bildInput');
+    aiCheckbox = document.getElementById('aiCheckbox');
+    rensaBtn = document.getElementById('rensaBtn');
+    runAiBtn = document.getElementById('runAiBtn');
 
-  // Draw current drawing (gray stroke only)
-  if (currentPath && currentPath.length>1) {
-    ctx.beginPath();
-    ctx.moveTo(currentPath[0].x, currentPath[0].y);
-    for (let k=1;k<currentPath.length;k++) ctx.lineTo(currentPath[k].x, currentPath[k].y);
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = '#555';
-    ctx.stroke();
-  }
-}
+    bildInput.addEventListener('change', e => {
+      const fil = e.target.files[0];
+      if (!fil) return;
+      const url = URL.createObjectURL(fil);
+      img = new Image();
+      img.onload = () => {
+        const maxWidth = 800;
+        const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
 
-// === Touch / Mouse drawing handlers ===
-function getPointerPos(evt) {
-  const rect = canvas.getBoundingClientRect();
-  if (evt.touches && evt.touches[0]) {
-    return { x: (evt.touches[0].clientX - rect.left), y: (evt.touches[0].clientY - rect.top) };
-  } else if (evt.changedTouches && evt.changedTouches[0]) {
-    return { x: (evt.changedTouches[0].clientX - rect.left), y: (evt.changedTouches[0].clientY - rect.top) };
-  } else {
-    return { x: evt.offsetX, y: evt.offsetY };
-  }
-}
+        imgLoaded = true;
+        paths = [];
+        stockContour = null;
+        rensaBtn.disabled = false;
+        runAiBtn.disabled = !aiCheckbox.checked;
+        document.getElementById('statusText').innerText = "Rita stockens ytterkant (blå) eller kör AI.";
+        document.getElementById('resultat').innerText = '';
 
-canvas.addEventListener('mousedown', (e)=> {
-  if(!ritMode || !imgLoaded) return;
-  drawing = true;
-  const p = getPointerPos(e);
-  currentPath = [{x: p.x, y: p.y}];
-});
-canvas.addEventListener('mousemove', (e)=> {
-  if(!drawing) return;
-  const p = getPointerPos(e);
-  currentPath.push({x: p.x, y: p.y});
-  drawCanvas();
-});
-canvas.addEventListener('mouseup', ()=> {
-  if(!drawing) return;
-  drawing = false;
-  if (currentPath.length>2) paths.push(currentPath.slice());
-  currentPath = [];
-  drawCanvas();
-});
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        ctx.drawImage(img,0,0,canvas.width,canvas.height);
+      };
+      img.src = url;
+    });
 
-canvas.addEventListener('touchstart', (e)=> {
-  if(!ritMode || !imgLoaded) return;
-  e.preventDefault();
-  drawing = true;
-  const p = getPointerPos(e);
-  currentPath = [{x: p.x, y: p.y}];
-});
-canvas.addEventListener('touchmove', (e)=> {
-  if(!drawing) return;
-  e.preventDefault();
-  const p = getPointerPos(e);
-  currentPath.push({x: p.x, y: p.y});
-  drawCanvas();
-});
-canvas.addEventListener('touchend', (e)=> {
-  if(!drawing) return;
-  drawing = false;
-  if (currentPath.length>2) paths.push(currentPath.slice());
-  currentPath = [];
-  drawCanvas();
-});
+    aiCheckbox.addEventListener('change', () => {
+      runAiBtn.disabled = !aiCheckbox.checked || !imgLoaded;
+    });
 
-// Toggle ritläge
-ritBtn.addEventListener('click', ()=> {
-  if(!imgLoaded) return;
-  ritMode = !ritMode;
-  ritBtn.textContent = ritMode ? 'Ritläge: PÅ' : 'Ritläge: AV';
-  // UX: when enabling ritMode, show hint to draw
-  if (ritMode) resultatEl.textContent = 'Ritläge aktiv — markera röta med fingret.';
-  else resultatEl.textContent = '';
-});
+    runAiBtn.addEventListener('click', () => {
+      if (!imgLoaded || !aiReady) return;
+      detectStockContour();
+    });
 
-// Reset drawing (keep image)
-resetBtn.addEventListener('click', ()=> {
-  paths = []; currentPath = []; stockContour = stockContour; // keep detected contour
-  clearResult(); drawCanvas();
-});
+    rensaBtn.addEventListener('click', () => {
+      if (!imgLoaded) return;
+      paths = [];
+      stockContour = null;
+      currentPath = [];
+      isDrawing = false;
+      document.getElementById('statusText').innerText = "Rita ny ytterkant (blå).";
+      document.getElementById('resultat').innerText = '';
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    });
 
-// Manual calculate button
-calcBtn.addEventListener('click', ()=> {
-  if(!imgLoaded) return;
-  if(!stockContour) {
-    alert('Ingen stockkontur funnen. Vänta på AI-detektor eller rita manuellt en yttre cirkel (inte implementerat för manuell i denna version).');
-    return;
-  }
-  runCalculationWithProgress();
-});
+    // 🔹 Rita frihand (mus)
+    canvas.addEventListener('mousedown', e => {
+      if (!imgLoaded) return;
+      isDrawing = true;
+      currentPath = [{x:e.offsetX,y:e.offsetY}];
+    });
+    canvas.addEventListener('mousemove', e => {
+      if (!isDrawing) return;
+      currentPath.push({x:e.offsetX,y:e.offsetY});
+      drawCanvas();
+      drawTempPath();
+    });
+    canvas.addEventListener('mouseup', () => finishPath());
 
-// === AI: detectStockContour using OpenCV HoughCircles ===
-function detectStockContour() {
-  if (!imgLoaded) return;
-  if (!window.cv || !cv.Mat) {
-    console.warn('OpenCV.js ej redo ännu.');
-    return;
-  }
+    // 🔹 Touch (mobil)
+    canvas.addEventListener('touchstart', e => {
+      if (!imgLoaded) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const t = e.touches[0];
+      currentPath = [{x:t.clientX-rect.left,y:t.clientY-rect.top}];
+      isDrawing = true;
+    });
+    canvas.addEventListener('touchmove', e => {
+      if (!isDrawing) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const t = e.touches[0];
+      currentPath.push({x:t.clientX-rect.left,y:t.clientY-rect.top});
+      drawCanvas();
+      drawTempPath();
+    });
+    canvas.addEventListener('touchend', e => {
+      e.preventDefault();
+      finishPath();
+    });
+  });
 
-  try {
-    // read canvas into mat (we draw image into canvas already)
-    const src = cv.imread(canvas);
-    const gray = new cv.Mat();
-    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
-    cv.GaussianBlur(gray, gray, new cv.Size(7,7), 0);
-
-    const circles = new cv.Mat();
-    // parameters can be tuned depending on image quality
-    // dp=1.2, minDist set to height/8, param1=100, param2=30
-    cv.HoughCircles(gray, circles, cv.HOUGH_GRADIENT, 1.2, gray.rows/8, 100, 30, 0, 0);
-
-    if (circles.cols > 0) {
-      // Use the first detected circle
-      const c = circles.data32F;
-      // Hough returns circle in pixel coordinates relative to the mat (which matches canvas size)
-      const cx = c[0], cy = c[1], r = c[2];
-      stockContour = { x: cx, y: cy, r: r };
-      // small sanity check: if radius is tiny, ignore
-      if (r < Math.max(canvas.width, canvas.height) * 0.05) {
-        console.warn('Hittad radius verkar för liten, ignorerar.');
-        // optional: don't set contour to allow manual fallback
+  function finishPath() {
+    if (!isDrawing) return;
+    isDrawing = false;
+    if (currentPath.length>2) {
+      if (!stockContour) {
+        // Första formen = ytterkant
+        stockContour = currentPath.slice();
+        document.getElementById('statusText').innerText = "Ytterkant klar. Rita röta (röd).";
       } else {
-        drawCanvas();
+        // Övriga = röta
+        paths.push(currentPath.slice());
       }
-    } else {
-      alert('AI kunde inte hitta stockens ytterkontur automatiskt. Försök med en annan bild eller bra ljus.');
+    }
+    currentPath = [];
+    drawCanvas();
+    if (stockContour && paths.length>0) calculateRota();
+  }
+
+  // 🔹 Rita allt
+  function drawCanvas() {
+    if (!imgLoaded) return;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);
+
+    // Ytterkontur
+    if (stockContour) {
+      ctx.beginPath();
+      ctx.moveTo(stockContour[0].x, stockContour[0].y);
+      stockContour.forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.closePath();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'blue';
+      ctx.stroke();
     }
 
-    src.delete(); gray.delete(); circles.delete();
-  } catch (ex) {
-    console.error('OpenCV fel:', ex);
-    alert('Ett fel uppstod vid AI-detektering. Se konsol.');
+    // Röta
+    paths.forEach(path => {
+      ctx.beginPath();
+      ctx.moveTo(path[0].x,path[0].y);
+      for (let p of path) ctx.lineTo(p.x,p.y);
+      ctx.closePath();
+      ctx.globalAlpha = 0.4;
+      ctx.fillStyle = 'red';
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+      ctx.strokeStyle = 'red';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
   }
+
+  function drawTempPath() {
+    ctx.beginPath();
+    ctx.moveTo(currentPath[0].x,currentPath[0].y);
+    for (let p of currentPath) ctx.lineTo(p.x,p.y);
+    ctx.strokeStyle='gray';
+    ctx.stroke();
+  }
+
+  // 🔹 AI – Hitta stockens kontur
+  function detectStockContour() {
+  document.getElementById('progressContainer').style.display = 'block';
+  document.getElementById('statusText').innerText = "AI analyserar...";
+
+  setTimeout(() => {
+    try {
+      // --- Skala ner canvas för snabbare analys ---
+      const scale = 0.3; // 30% av originalstorlek
+      let tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = canvas.width * scale;
+      tmpCanvas.height = canvas.height * scale;
+      tmpCanvas.getContext('2d').drawImage(canvas, 0, 0, tmpCanvas.width, tmpCanvas.height);
+
+      let src = cv.imread(tmpCanvas);
+      let gray = new cv.Mat();
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+      cv.GaussianBlur(gray, gray, new cv.Size(5,5), 0);
+
+      // --- HoughCircles på nedskalad bild ---
+      let circles = new cv.Mat();
+      cv.HoughCircles(gray, circles, cv.HOUGH_GRADIENT, 1, gray.rows/8, 100, 30, 0, 0);
+
+      if (circles.cols > 0) {
+        const c = circles.data32F;
+        const x = c[0] / scale; // skala tillbaka till originalcanvas
+        const y = c[1] / scale;
+        const r = c[2] / scale;
+
+        stockContour = [];
+        for (let i = 0; i < 360; i += 5) {
+          const rad = i * Math.PI / 180;
+          stockContour.push({x: x + r * Math.cos(rad), y: y + r * Math.sin(rad)});
+        }
+        document.getElementById('statusText').innerText = "AI hittade ytterkant. Rita röta (röd).";
+      } else {
+        document.getElementById('statusText').innerText = "AI hittade ingen ytterkant. Rita själv.";
+      }
+
+      drawCanvas();
+      src.delete(); gray.delete(); circles.delete();
+    } catch (err) {
+      console.error("OpenCV-fel:", err);
+      document.getElementById('statusText').innerText = "Ett fel uppstod i AI-analysen.";
+    }
+
+    document.getElementById('progressContainer').style.display = 'none';
+  }, 50); // liten timeout för UI-uppdatering
 }
 
-// === Calculation flow with animated progress bar ===
-function runCalculationWithProgress() {
-  progressWrap.style.display = 'block';
-  progressBar.style.width = '0%';
-  resultatEl.textContent = '';
 
-  // simple faux-progress animation to show activity (actual calculation is quick)
-  let pct = 0;
-  const interval = setInterval(()=> {
-    pct += Math.random()*12;
-    if (pct >= 92) pct = 92;
-    progressBar.style.width = pct + '%';
-  }, 180);
+  // 🔹 Beräkna procent röta
+  function calculateRota() {
+    if (!stockContour) return;
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = canvas.width;
+    tempCanvas.height = canvas.height;
+    const tctx = tempCanvas.getContext('2d');
 
-  // simulate short delay then compute real values
-  setTimeout(()=> {
-    clearInterval(interval);
-    progressBar.style.width = '100%';
-    setTimeout(()=>{
-      progressWrap.style.display = 'none';
-      progressBar.style.width = '0%';
-      // do real calculation
-      calculateRota();
-    }, 220);
-  }, 700 + Math.random()*600);
-}
-
-// === Pixel-based area calculation ===
-function calculateRota() {
-  if (!stockContour) {
-    alert('Ingen yttre kontur finns — kan inte räkna andel.');
-    return;
-  }
-
-  // create temp canvas same size as main
-  const temp = document.createElement('canvas');
-  temp.width = canvas.width;
-  temp.height = canvas.height;
-  const tctx = temp.getContext('2d');
-
-  // mask stock (circle)
-  tctx.clearRect(0,0,temp.width,temp.height);
-  tctx.beginPath();
-  tctx.arc(stockContour.x, stockContour.y, stockContour.r, 0, Math.PI*2);
-  tctx.fill();
-
-  let stockData = tctx.getImageData(0,0,temp.width,temp.height).data;
-  let stockCount = 0;
-  for (let i=3;i<stockData.length;i+=4) { if (stockData[i] > 0) stockCount++; }
-
-  if (stockCount === 0) {
-    alert('Misslyckades att räkna stockens area (0 pixlar).');
-    return;
-  }
-
-  // mask rot (fill all user paths onto temp canvas)
-  tctx.clearRect(0,0,temp.width,temp.height);
-  tctx.fillStyle = '#fff';
-  for (let path of paths) {
-    if (!path || path.length < 3) continue;
+    // Stockmask
     tctx.beginPath();
-    tctx.moveTo(path[0].x, path[0].y);
-    for (let k=1;k<path.length;k++) tctx.lineTo(path[k].x, path[k].y);
+    tctx.moveTo(stockContour[0].x,stockContour[0].y);
+    stockContour.forEach(p=>tctx.lineTo(p.x,p.y));
     tctx.closePath();
     tctx.fill();
+    const stockData = tctx.getImageData(0,0,tempCanvas.width,tempCanvas.height).data;
+    let stockPixels=0;
+    for(let i=3;i<stockData.length;i+=4){ if(stockData[i]>0) stockPixels++; }
+
+    // Röta
+    tctx.clearRect(0,0,tempCanvas.width,tempCanvas.height);
+    paths.forEach(path=>{
+      tctx.beginPath();
+      tctx.moveTo(path[0].x,path[0].y);
+      for(let p of path) tctx.lineTo(p.x,p.y);
+      tctx.closePath();
+      tctx.fill();
+    });
+    const rotaData = tctx.getImageData(0,0,tempCanvas.width,tempCanvas.height).data;
+    let rotaPixels=0;
+    for(let i=3;i<rotaData.length;i+=4){ if(rotaData[i]>0) rotaPixels++; }
+
+    const procent = (rotaPixels/stockPixels)*100;
+    document.getElementById('resultat').innerText =
+      `Röta: ${procent.toFixed(2)}% av stockens area.`;
   }
-  let rotaData = tctx.getImageData(0,0,temp.width,temp.height).data;
-  let rotaCount = 0;
-  for (let i=3;i<rotaData.length;i+=4) { if (rotaData[i] > 0) rotaCount++; }
+  </script>
 
-  if (rotaCount === 0) {
-    resultatEl.textContent = 'Inget område markerat som röta.';
-    return;
-  }
-
-  const percent = (rotaCount / stockCount) * 100;
-  resultatEl.textContent = `Röta: ${percent.toFixed(2)}% av stocken (${rotaCount} px / ${stockCount} px)`;
-}
-
-// Initialize UI default
-setButtonsState(false);
-clearResult();
-
-// Optional: when page gets focus, try to ensure cv is ready (useful if OpenCV was slow)
-window.addEventListener('focus', ()=> {
-  if (!cvReady && window.cv && cv.Mat) { cvReady = true; }
-});
-</script>
 </body>
 </html>
