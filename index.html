@@ -2,7 +2,7 @@
 <html lang="sv">
 <head>
   <meta charset="UTF-8">
-  <title>Röträknare för stockar</title>
+  <title>Beräkna röta i stockändar</title>
   <style>
     body {
       font-family: sans-serif;
@@ -50,29 +50,91 @@
     }
   </style>
 </head>
-<body>
+<body style="background:#f4e4c1">
 
-  <h2 style="font-size:1.5rem; text-align:center; margin-bottom:10px;">Röträknare för stockändar</h2>
+<h2 style="font-size:1.6rem; text-align:center; margin-bottom:15px; color:#2d2d2d;">🪵 Beräkna röta i stockändar</h2>
 
-<div class="controls" style="display:flex; flex-direction:column; align-items:center; gap:8px; margin-bottom:10px;">
-  <label style="font-size:1rem; display:flex; align-items:center; gap:6px; justify-content:center;">
-    <input type="checkbox" id="aiCheckbox"> Använd AI för att hitta ytterkant
-  </label>
-  <button id="runAiBtn" disabled style="padding:10px 12px; font-size:1rem; border-radius:6px; border:none; background:#0078D7; color:white; width:90%; max-width:250px;">Kör AI</button>
-  <input type="file" id="bildInput" accept="image/*" style="padding:10px; font-size:1rem; width:90%; max-width:250px;">
-  <button id="rensaBtn" disabled style="padding:10px 12px; font-size:1rem; border-radius:6px; border:none; background:#0078D7; color:white; width:90%; max-width:250px;">Rensa</button>
+<div class="controls" style="
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:10px;
+  margin-bottom:12px;
+  width:100%;
+">
+
+  <!-- "Bläddra" / filinput stylas via label -->
+  <label for="bildInput" style="
+    background:#3498db;
+    color:white;
+    font-size:1.1rem;
+    font-weight:bold;
+    padding:12px 0;
+    width:100%;
+    text-align:center;
+    border-radius:0;
+    cursor:pointer;
+    text-transform:uppercase;
+    box-shadow:0 2px 0 #1c6fa5;
+  ">Välj bild</label>
+  <input type="file" id="bildInput" accept="image/*" style="display:none;">
+  
+  <button id="runAiBtn" disabled style="
+    padding:12px 0;
+    font-size:1.1rem;
+    border-radius:0;
+    border:none;
+    background:#e67e22;
+    color:#fff;
+    width:100%;
+    max-width:none;
+    font-weight:bold;
+    text-transform:uppercase;
+    box-shadow:0 2px 0 #b85e17;
+  ">Rita konturerna</button>
+
+  <button id="rensaBtn" disabled style="
+    padding:12px 0;
+    font-size:1.1rem;
+    border-radius:0;
+    border:none;
+    background:#c0392b;
+    color:#fff;
+    width:100%;
+    max-width:none;
+    font-weight:bold;
+    text-transform:uppercase;
+    box-shadow:0 2px 0 #962d22;
+  ">Rensa</button>
 </div>
 
-<div id="progressContainer" style="display:none; margin-top:10px; width:95%; max-width:300px; margin-left:auto; margin-right:auto;">
+<div id="progressContainer" style="
+  display:none;
+  margin-top:10px;
+  width:95%;
+  max-width:300px;
+  margin-left:auto;
+  margin-right:auto;
+">
   <div id="progressBar" style="width:100%; height:8px; background:#ddd; border-radius:5px; overflow:hidden;">
-    <div id="progressFill" style="width:0%; height:100%; background:#2196F3; animation:loading 2s infinite;"></div>
+    <div id="progressFill" style="width:0%; height:100%; background:#3498db; animation:loading 2s infinite;"></div>
   </div>
-  <p style="text-align:center;">AI analyserar bilden...</p>
+  <p style="text-align:center; color:#4a3b26;">AI analyserar bilden...</p>
 </div>
 
-<p id="statusText" style="font-weight:bold; font-size:1rem; text-align:center; margin-top:10px;"></p>
-<canvas id="myCanvas" width="800" height="600" style="border:1px solid #ccc; background:white; width:95%; height:auto; display:block; margin:0 auto; cursor:crosshair;"></canvas>
-<p id="resultat" style="font-weight:bold; font-size:1rem; text-align:center; margin-top:10px;"></p>
+<p id="statusText" style="font-weight:bold; font-size:1rem; text-align:center; margin-top:10px; color:#4a3b26;"></p>
+
+<canvas id="myCanvas" width="100%" height="200" style="
+  border:2px solid #a37c27;
+  background:white;
+  width:100%;
+  height:auto;
+  display:block;
+  margin:0 auto;
+  cursor:crosshair;
+"></canvas>
+
+<p id="resultat" style="font-weight:bold; font-size:3rem; text-align:center; margin-top:10px; color:#4a3b26;"></p>
 
 <style>
 @keyframes loading {
@@ -87,7 +149,7 @@
   <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();"></script>
 
   <script>
-  let canvas, ctx, bildInput, aiCheckbox, rensaBtn, runAiBtn;
+  let canvas, ctx, bildInput, rensaBtn, runAiBtn;
   let img = null;
   let imgLoaded = false;
   let paths = [];
@@ -105,7 +167,6 @@
     canvas = document.getElementById('myCanvas');
     ctx = canvas.getContext('2d');
     bildInput = document.getElementById('bildInput');
-    aiCheckbox = document.getElementById('aiCheckbox');
     rensaBtn = document.getElementById('rensaBtn');
     runAiBtn = document.getElementById('runAiBtn');
 
@@ -124,7 +185,7 @@
         paths = [];
         stockContour = null;
         rensaBtn.disabled = false;
-        runAiBtn.disabled = !aiCheckbox.checked;
+        runAiBtn.disabled = false;
         document.getElementById('statusText').innerText = "Rita stockens ytterkant (blå) eller kör AI.";
         document.getElementById('resultat').innerText = '';
 
@@ -132,10 +193,6 @@
         ctx.drawImage(img,0,0,canvas.width,canvas.height);
       };
       img.src = url;
-    });
-
-    aiCheckbox.addEventListener('change', () => {
-      runAiBtn.disabled = !aiCheckbox.checked || !imgLoaded;
     });
 
     runAiBtn.addEventListener('click', () => {
@@ -157,10 +214,6 @@
 
     // 🔹 Rita frihand (mus)
     canvas.addEventListener('mousedown', e => {
-      //if (!imgLoaded) return;
-      //isDrawing = true;
-      //currentPath = [{x:e.offsetX,y:e.offsetY}];
-	  
 	   if (!imgLoaded) return;
 	  isDrawing = true;
 	  const rect = canvas.getBoundingClientRect();
@@ -171,11 +224,6 @@
 	  currentPath = [{x, y}];
     });
     canvas.addEventListener('mousemove', e => {
-      //if (!isDrawing) return;
-      //currentPath.push({x:e.offsetX,y:e.offsetY});
-      //drawCanvas();
-      //drawTempPath();
-	  
 	  if (!isDrawing) return;
   const rect = canvas.getBoundingClientRect();
   const scaleX = canvas.width / rect.width;
@@ -191,12 +239,6 @@
 
     // 🔹 Touch (mobil)
     canvas.addEventListener('touchstart', e => {
-      //if (!imgLoaded) return;
-      //e.preventDefault();
-      //const rect = canvas.getBoundingClientRect();
-      //const t = e.touches[0];
-      //currentPath = [{x:t.clientX-rect.left,y:t.clientY-rect.top}];
-      //isDrawing = true;
 	   if (!imgLoaded) return;
 	  e.preventDefault();
 	  const rect = canvas.getBoundingClientRect();
@@ -209,14 +251,6 @@
 	  isDrawing = true;
     });
     canvas.addEventListener('touchmove', e => {
-      //if (!isDrawing) return;
-      //e.preventDefault();
-      //const rect = canvas.getBoundingClientRect();
-      //const t = e.touches[0];
-      //currentPath.push({x:t.clientX-rect.left,y:t.clientY-rect.top});
-      //drawCanvas();
-      //drawTempPath();
-	  
 	  if (!isDrawing) return;
 	  e.preventDefault();
 	  const rect = canvas.getBoundingClientRect();
@@ -378,7 +412,7 @@
 
     const procent = (rotaPixels/stockPixels)*100;
     document.getElementById('resultat').innerText =
-      `Röta: ${procent.toFixed(2)}% av stockens area.`;
+      `Röta: ${procent.toFixed(2)}%`;
   }
   </script>
 
