@@ -191,21 +191,43 @@
 
     // 🔹 Touch (mobil)
     canvas.addEventListener('touchstart', e => {
-      if (!imgLoaded) return;
-      e.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      const t = e.touches[0];
-      currentPath = [{x:t.clientX-rect.left,y:t.clientY-rect.top}];
-      isDrawing = true;
+      //if (!imgLoaded) return;
+      //e.preventDefault();
+      //const rect = canvas.getBoundingClientRect();
+      //const t = e.touches[0];
+      //currentPath = [{x:t.clientX-rect.left,y:t.clientY-rect.top}];
+      //isDrawing = true;
+	   if (!imgLoaded) return;
+	  e.preventDefault();
+	  const rect = canvas.getBoundingClientRect();
+	  const scaleX = canvas.width / rect.width;
+	  const scaleY = canvas.height / rect.height;
+	  const t = e.touches[0];
+	  const x = (t.clientX - rect.left) * scaleX;
+	  const y = (t.clientY - rect.top) * scaleY;
+	  currentPath = [{x, y}];
+	  isDrawing = true;
     });
     canvas.addEventListener('touchmove', e => {
-      if (!isDrawing) return;
-      e.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      const t = e.touches[0];
-      currentPath.push({x:t.clientX-rect.left,y:t.clientY-rect.top});
-      drawCanvas();
-      drawTempPath();
+      //if (!isDrawing) return;
+      //e.preventDefault();
+      //const rect = canvas.getBoundingClientRect();
+      //const t = e.touches[0];
+      //currentPath.push({x:t.clientX-rect.left,y:t.clientY-rect.top});
+      //drawCanvas();
+      //drawTempPath();
+	  
+	  if (!isDrawing) return;
+	  e.preventDefault();
+	  const rect = canvas.getBoundingClientRect();
+	  const scaleX = canvas.width / rect.width;
+	  const scaleY = canvas.height / rect.height;
+	  const t = e.touches[0];
+	  const x = (t.clientX - rect.left) * scaleX;
+	  const y = (t.clientY - rect.top) * scaleY;
+	  currentPath.push({x, y});
+	  drawCanvas();
+	  drawTempPath(); 
     });
     canvas.addEventListener('touchend', e => {
       e.preventDefault();
