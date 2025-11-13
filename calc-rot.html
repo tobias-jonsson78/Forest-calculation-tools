@@ -1,197 +1,312 @@
 <!DOCTYPE html>
 <html lang="sv">
 <head>
-<meta charset="UTF-8">
-<title>Rita frihand och räkna yta</title>
-<style>
-  body {
-    font-family: sans-serif;
-    text-align: center;
-    background: #f8f9fa;
-  }
-  canvas {
-    border: 1px solid #aaa;
-    margin-top: 10px;
-    cursor: crosshair;
-    touch-action: none;
-    max-width: 95vw;
-  }
-  #resultat {
-    margin-top: 10px;
-    font-size: 1.2em;
-  }
-  button {
-    margin: 5px;
-    padding: 8px 16px;
-    border-radius: 8px;
-  }
-</style>
+  <meta charset="UTF-8">
+  <title>Röträknare för stockar</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      background: #f5f5f5;
+      padding: 20px;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      margin-top: 10px;
+      cursor: crosshair;
+      background: white;
+      max-width: 100%;
+      height: auto;
+    }
+    .controls {
+      margin: 10px 0;
+    }
+    #resultat, #statusText {
+      font-weight: bold;
+      margin-top: 10px;
+    }
+    #progressContainer {
+      display: none;
+      margin-top: 10px;
+    }
+    #progressBar {
+      width: 200px;
+      height: 8px;
+      background: #ddd;
+      border-radius: 5px;
+      margin: auto;
+      overflow: hidden;
+    }
+    #progressFill {
+      width: 0%;
+      height: 100%;
+      background: #2196F3;
+      animation: loading 2s infinite;
+    }
+    @keyframes loading {
+      0% {width: 0%;}
+      50% {width: 100%;}
+      100% {width: 0%;}
+    }
+  </style>
 </head>
 <body>
 
-<h2>Rita två områden på frihand och beräkna andel</h2>
-<input type="file" id="bildInput" accept="image/*"><br>
-<button id="rensaBtn" disabled>Rensa områden</button>
-<canvas id="myCanvas"></canvas>
-<p id="resultat"></p>
+  <h2>Röträknare för stockändar</h2>
 
-<script>
-const canvas = document.getElementById('myCanvas');
-const ctx = canvas.getContext('2d');
-const bildInput = document.getElementById('bildInput');
-const rensaBtn = document.getElementById('rensaBtn');
+  <div class="controls">
+    <label><input type="checkbox" id="aiCheckbox"> Använd AI för att hitta ytterkant</label>
+    <button id="runAiBtn" disabled>Kör AI</button><br><br>
+    <input type="file" id="bildInput" accept="image/*"><br><br>
+    <button id="rensaBtn" disabled>Rensa</button>
+  </div>
 
-let img = null;
-let imgLoaded = false;
-let paths = [];
-let currentPath = [];
-let isDrawing = false;
+  <div id="progressContainer">
+    <div id="progressBar"><div id="progressFill"></div></div>
+    <p>AI analyserar bilden...</p>
+  </div>
 
-// 🖼️ När användaren väljer en bild
-bildInput.addEventListener('change', e => {
-  const fil = e.target.files[0];
-  if (!fil) return;
+  <p id="statusText"></p>
+  <canvas id="myCanvas" width="800" height="600"></canvas>
+  <p id="resultat"></p>
 
-  const url = URL.createObjectURL(fil);
-  img = new Image();
-  img.onload = () => {
-    const maxWidth = 800;
-    const scale = img.width > maxWidth ? maxWidth / img.width : 1;
-    canvas.width = img.width * scale;
-    canvas.height = img.height * scale;
+  <!-- OpenCV.js -->
+  <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();"></script>
 
-    imgLoaded = true;
-    paths = [];
-    currentPath = [];
-    rensaBtn.disabled = false;
-    document.getElementById('resultat').innerText = '';
+  <script>
+  let canvas, ctx, bildInput, aiCheckbox, rensaBtn, runAiBtn;
+  let img = null;
+  let imgLoaded = false;
+  let paths = [];
+  let currentPath = [];
+  let isDrawing = false;
+  let stockContour = null;
+  let aiReady = false;
 
-    // 🖼️ Rita bilden när den laddats
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  };
-  img.src = url;
-});
+  function onOpenCvReady() {
+    aiReady = true;
+    console.log("OpenCV.js laddad.");
+  }
 
-// 🔄 Rita om canvas (bild + områden)
-function drawCanvas() {
-  if (!imgLoaded) return;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  document.addEventListener("DOMContentLoaded", () => {
+    canvas = document.getElementById('myCanvas');
+    ctx = canvas.getContext('2d');
+    bildInput = document.getElementById('bildInput');
+    aiCheckbox = document.getElementById('aiCheckbox');
+    rensaBtn = document.getElementById('rensaBtn');
+    runAiBtn = document.getElementById('runAiBtn');
 
-  // Rita alla sparade områden
-  paths.forEach((path, i) => {
-    ctx.beginPath();
-    ctx.moveTo(path[0].x, path[0].y);
-    for (let p of path) ctx.lineTo(p.x, p.y);
-    ctx.closePath();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = i === 0 ? 'blue' : 'red';
-    ctx.globalAlpha = 0.4;
-    ctx.fillStyle = i === 0 ? 'blue' : 'red';
-    ctx.fill();
-    ctx.globalAlpha = 1.0;
-    ctx.stroke();
+    bildInput.addEventListener('change', e => {
+      const fil = e.target.files[0];
+      if (!fil) return;
+      const url = URL.createObjectURL(fil);
+      img = new Image();
+      img.onload = () => {
+        const maxWidth = 800;
+        const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+
+        imgLoaded = true;
+        paths = [];
+        stockContour = null;
+        rensaBtn.disabled = false;
+        runAiBtn.disabled = !aiCheckbox.checked;
+        document.getElementById('statusText').innerText = "Rita stockens ytterkant (blå) eller kör AI.";
+        document.getElementById('resultat').innerText = '';
+
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        ctx.drawImage(img,0,0,canvas.width,canvas.height);
+      };
+      img.src = url;
+    });
+
+    aiCheckbox.addEventListener('change', () => {
+      runAiBtn.disabled = !aiCheckbox.checked || !imgLoaded;
+    });
+
+    runAiBtn.addEventListener('click', () => {
+      if (!imgLoaded || !aiReady) return;
+      detectStockContour();
+    });
+
+    rensaBtn.addEventListener('click', () => {
+      if (!imgLoaded) return;
+      paths = [];
+      stockContour = null;
+      currentPath = [];
+      isDrawing = false;
+      document.getElementById('statusText').innerText = "Rita ny ytterkant (blå).";
+      document.getElementById('resultat').innerText = '';
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    });
+
+    // 🔹 Rita frihand (mus)
+    canvas.addEventListener('mousedown', e => {
+      if (!imgLoaded) return;
+      isDrawing = true;
+      currentPath = [{x:e.offsetX,y:e.offsetY}];
+    });
+    canvas.addEventListener('mousemove', e => {
+      if (!isDrawing) return;
+      currentPath.push({x:e.offsetX,y:e.offsetY});
+      drawCanvas();
+      drawTempPath();
+    });
+    canvas.addEventListener('mouseup', () => finishPath());
+
+    // 🔹 Touch (mobil)
+    canvas.addEventListener('touchstart', e => {
+      if (!imgLoaded) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const t = e.touches[0];
+      currentPath = [{x:t.clientX-rect.left,y:t.clientY-rect.top}];
+      isDrawing = true;
+    });
+    canvas.addEventListener('touchmove', e => {
+      if (!isDrawing) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const t = e.touches[0];
+      currentPath.push({x:t.clientX-rect.left,y:t.clientY-rect.top});
+      drawCanvas();
+      drawTempPath();
+    });
+    canvas.addEventListener('touchend', e => {
+      e.preventDefault();
+      finishPath();
+    });
   });
-}
 
-// ✏️ Rita frihand (mus)
-canvas.addEventListener('mousedown', e => {
-  if (!imgLoaded || paths.length >= 2) return;
-  isDrawing = true;
-  currentPath = [{x: e.offsetX, y: e.offsetY}];
-});
-canvas.addEventListener('mousemove', e => {
-  if (!isDrawing) return;
-  currentPath.push({x: e.offsetX, y: e.offsetY});
-  drawCanvas();
-  // Förhandsvisa aktuell form
-  ctx.beginPath();
-  ctx.moveTo(currentPath[0].x, currentPath[0].y);
-  for (let p of currentPath) ctx.lineTo(p.x, p.y);
-  ctx.strokeStyle = "gray";
-  ctx.stroke();
-});
-canvas.addEventListener('mouseup', () => {
-  if (!isDrawing) return;
-  isDrawing = false;
-  if (currentPath.length > 2) {
-    paths.push(currentPath);
-    if (paths.length === 2) beräknaAndel();
+  function finishPath() {
+    if (!isDrawing) return;
+    isDrawing = false;
+    if (currentPath.length>2) {
+      if (!stockContour) {
+        // Första formen = ytterkant
+        stockContour = currentPath.slice();
+        document.getElementById('statusText').innerText = "Ytterkant klar. Rita röta (röd).";
+      } else {
+        // Övriga = röta
+        paths.push(currentPath.slice());
+      }
+    }
+    currentPath = [];
+    drawCanvas();
+    if (stockContour && paths.length>0) calculateRota();
   }
-  currentPath = [];
-  drawCanvas();
-});
 
-// 📱 Touch (mobil)
-canvas.addEventListener('touchstart', e => {
-  if (!imgLoaded || paths.length >= 2) return;
-  e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
-  const t = e.touches[0];
-  currentPath = [{x: t.clientX - rect.left, y: t.clientY - rect.top}];
-  isDrawing = true;
-});
-canvas.addEventListener('touchmove', e => {
-  if (!isDrawing) return;
-  e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
-  const t = e.touches[0];
-  currentPath.push({x: t.clientX - rect.left, y: t.clientY - rect.top});
-  drawCanvas();
-  ctx.beginPath();
-  ctx.moveTo(currentPath[0].x, currentPath[0].y);
-  for (let p of currentPath) ctx.lineTo(p.x, p.y);
-  ctx.strokeStyle = "gray";
-  ctx.stroke();
-});
-canvas.addEventListener('touchend', e => {
-  if (!isDrawing) return;
-  e.preventDefault();
-  isDrawing = false;
-  if (currentPath.length > 2) {
-    paths.push(currentPath);
-    if (paths.length === 2) beräknaAndel();
+  // 🔹 Rita allt
+  function drawCanvas() {
+    if (!imgLoaded) return;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);
+
+    // Ytterkontur
+    if (stockContour) {
+      ctx.beginPath();
+      ctx.moveTo(stockContour[0].x, stockContour[0].y);
+      stockContour.forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.closePath();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'blue';
+      ctx.stroke();
+    }
+
+    // Röta
+    paths.forEach(path => {
+      ctx.beginPath();
+      ctx.moveTo(path[0].x,path[0].y);
+      for (let p of path) ctx.lineTo(p.x,p.y);
+      ctx.closePath();
+      ctx.globalAlpha = 0.4;
+      ctx.fillStyle = 'red';
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+      ctx.strokeStyle = 'red';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
   }
-  currentPath = [];
-  drawCanvas();
-});
 
-// 🧮 Beräkna procentuell area
-function beräknaAndel() {
-  const areor = paths.map(path => {
+  function drawTempPath() {
+    ctx.beginPath();
+    ctx.moveTo(currentPath[0].x,currentPath[0].y);
+    for (let p of currentPath) ctx.lineTo(p.x,p.y);
+    ctx.strokeStyle='gray';
+    ctx.stroke();
+  }
+
+  // 🔹 AI – Hitta stockens kontur
+  function detectStockContour() {
+    document.getElementById('progressContainer').style.display = 'block';
+    document.getElementById('statusText').innerText = "AI analyserar...";
+
+    setTimeout(() => {
+      let src = cv.imread(canvas);
+      let gray = new cv.Mat();
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
+      cv.GaussianBlur(gray, gray, new cv.Size(5,5), 0);
+      let circles = new cv.Mat();
+      cv.HoughCircles(gray, circles, cv.HOUGH_GRADIENT, 1, gray.rows/8, 100, 30, 0, 0);
+
+      if (circles.cols>0) {
+        const c = circles.data32F;
+        const x = c[0], y = c[1], r = c[2];
+        stockContour = [];
+        for (let i=0; i<360; i+=5) {
+          const rad = i*Math.PI/180;
+          stockContour.push({x: x + r*Math.cos(rad), y: y + r*Math.sin(rad)});
+        }
+        document.getElementById('statusText').innerText = "AI hittade ytterkant. Rita röta (röd).";
+      } else {
+        document.getElementById('statusText').innerText = "AI hittade ingen ytterkant. Rita själv.";
+      }
+
+      drawCanvas();
+      src.delete(); gray.delete(); circles.delete();
+      document.getElementById('progressContainer').style.display = 'none';
+    }, 200);
+  }
+
+  // 🔹 Beräkna procent röta
+  function calculateRota() {
+    if (!stockContour) return;
     const tempCanvas = document.createElement('canvas');
-    const tctx = tempCanvas.getContext('2d');
     tempCanvas.width = canvas.width;
     tempCanvas.height = canvas.height;
+    const tctx = tempCanvas.getContext('2d');
 
+    // Stockmask
     tctx.beginPath();
-    tctx.moveTo(path[0].x, path[0].y);
-    for (let p of path) tctx.lineTo(p.x, p.y);
+    tctx.moveTo(stockContour[0].x,stockContour[0].y);
+    stockContour.forEach(p=>tctx.lineTo(p.x,p.y));
     tctx.closePath();
     tctx.fill();
+    const stockData = tctx.getImageData(0,0,tempCanvas.width,tempCanvas.height).data;
+    let stockPixels=0;
+    for(let i=3;i<stockData.length;i+=4){ if(stockData[i]>0) stockPixels++; }
 
-    const mask = tctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height).data;
-    let count = 0;
-    for (let i = 3; i < mask.length; i += 4) {
-      if (mask[i] > 0) count++;
-    }
-    return count;
-  });
+    // Röta
+    tctx.clearRect(0,0,tempCanvas.width,tempCanvas.height);
+    paths.forEach(path=>{
+      tctx.beginPath();
+      tctx.moveTo(path[0].x,path[0].y);
+      for(let p of path) tctx.lineTo(p.x,p.y);
+      tctx.closePath();
+      tctx.fill();
+    });
+    const rotaData = tctx.getImageData(0,0,tempCanvas.width,tempCanvas.height).data;
+    let rotaPixels=0;
+    for(let i=3;i<rotaData.length;i+=4){ if(rotaData[i]>0) rotaPixels++; }
 
-  const [stor, liten] = areor.sort((a, b) => b - a);
-  const procent = (liten / stor) * 100;
-  document.getElementById('resultat').innerText =
-    `Det mindre området är ${procent.toFixed(2)}% av det större.`;
-}
+    const procent = (rotaPixels/stockPixels)*100;
+    document.getElementById('resultat').innerText =
+      `Röta: ${procent.toFixed(2)}% av stockens area.`;
+  }
+  </script>
 
-// 🧹 Rensa
-rensaBtn.addEventListener('click', () => {
-  paths = [];
-  currentPath = [];
-  drawCanvas();
-  document.getElementById('resultat').innerText = '';
-});
-</script>
 </body>
 </html>
